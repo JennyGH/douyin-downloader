@@ -162,6 +162,8 @@ class Resquest(BaseHTTPRequestHandler):
         else:
             query = _parse_query(splited[1])
 
+        download_video_directly = 'download_video_directly' in query
+
         http_status = 200
         response = ""
         if 'url' not in query:
@@ -189,21 +191,25 @@ class Resquest(BaseHTTPRequestHandler):
                         f'Unable to get the download url of douyin video, because: {ex}'
                     )
 
-        video_size = 0
-        video_bytes = b''
-        if len(urls) > 0:
-            for url in urls:
-                video_bytes = _download_video_from(url)
-                if None == video_bytes:
-                    continue
-                video_size = len(video_bytes)
-                if video_size > 0:
-                    break
+        if download_video_directly:
+            video_size = 0
+            video_bytes = b''
+            if len(urls) > 0:
+                for url in urls:
+                    video_bytes = _download_video_from(url)
+                    if None == video_bytes:
+                        continue
+                    video_size = len(video_bytes)
+                    if video_size > 0:
+                        break
 
-        if None != video_bytes and video_size > 0:
-            # Base encode video bytes.
-            video_base64 = str(base64.b64encode(video_bytes), 'utf-8')
-            response = _make_success_result(video_base64)
+            if None != video_bytes and video_size > 0:
+                # Base encode video bytes.
+                video_base64 = str(base64.b64encode(video_bytes), 'utf-8')
+                response = _make_success_result(video_base64)
+        else:
+            if http_status == 200:
+                response = _make_success_result(urls)
 
         self.send_response(http_status)
         self.send_header('Content-type', 'application/json; charset=utf-8')
