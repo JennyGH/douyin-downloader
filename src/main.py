@@ -1,11 +1,11 @@
 # coding:utf-8
 import base64
 import os
+import sys
 import json
 import requests
+from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
-host = ('', 8080)
 
 headers = {
     'user-agent':
@@ -63,7 +63,10 @@ def _get_video_real_urls_by_id_v1(video_id):
     log_debug(f'api_url: {api_url}')
     response = requests.get(url=api_url, headers=headers)
     text = response.content.decode('utf-8')
-    log_debug(f'response: {text}')
+    if len(text) == 0:
+        log_error(f'No response from `{api_url}`')
+    else:
+        log_debug(f'response: {text}')
     response = json.loads(text)
     if 'item_list' not in response:
         log_error('No `item_list` in response')
@@ -141,55 +144,61 @@ def _get_video_real_urls_by_id_v2(video_id):
     return urls
 
 
-def _parse_query(query_string):
-    query = {}
-    pairs = query_string.split('&')
-    for pair in pairs:
-        key_value = pair.split('=')
-        key = key_value[0]
-        value = key_value[1]
-        query[key] = value
-    return query
+def fix_base64_encode_padding(data):
+    missing_padding = 4 - len(data) % 4
+    if missing_padding:
+        data += b'=' * missing_padding
+    return data
 
 
 class Resquest(BaseHTTPRequestHandler):
     def do_GET(self):
         log_debug('==========================================================')
+        log_debug(f'Request path: {self.path}')
 
-        splited = self.path.split('?')
-        if len(splited) < 2:
-            query = {}
-        else:
-            query = _parse_query(splited[1])
+        query_string = urlparse(self.path).query
+        log_debug(f'Query string: {query_string}')
+        if len(query_string) == 0:
+            self.send_client_fail_response(f"Bad uri")
 
-        download_video_directly = 'download_video_directly' in query
+        query = parse_qs(query_string)
 
-        http_status = 200
-        response = ""
-        if 'url' not in query:
-            http_status = 400
-            response = _make_fail_result(f"Bad uri: {self.path}")
-        else:
-            share_url = query['url']
-            video_id = ''
+        download_video_directly = ('download_video_directly' in query) and (
+            len(query['download_video_directly']) > 0) and (int(
+                query['download_video_directly'][0]) == 1)
+        log_debug(f'download_video_directly: {download_video_directly}')
+
+        if ('url' not in query) or len(query['url']) <= 0:
+            self.send_client_fail_response(f"Bad query: {self.path}")
+            return
+
+        # Decode share url from base64.
+        share_url_base64 = fix_base64_encode_padding(
+            query['url'][0].encode("utf-8"))
+        share_url = str(base64.b64decode(share_url_base64), 'utf-8')
+        log_debug(f'share_url: {share_url}')
+
+        # Try to get video id from share url.
+        video_id = ''
+        try:
+            video_id = _get_video_id(share_url)
+        except Exception as ex:
+            self.send_server_fail_response(
+                f'Unable to get video id from share url, because: {ex}')
+            return
+
+        # Try to get video download urls from video id.
+        urls = []
+        try:
+            urls = _get_video_real_urls_by_id_v1(video_id)
+        except:
             try:
-                video_id = _get_video_id(share_url)
+                urls = _get_video_real_urls_by_id_v2(video_id)
             except Exception as ex:
-                http_status = 500
-                response = _make_fail_result(
-                    f'Unable to get video id from share url, because: {ex}')
-
-            urls = []
-            try:
-                urls = _get_video_real_urls_by_id_v1(video_id)
-            except:
-                try:
-                    urls = _get_video_real_urls_by_id_v2(video_id)
-                except Exception as ex:
-                    http_status = 500
-                    response = _make_fail_result(
-                        f'Unable to get the download url of douyin video, because: {ex}'
-                    )
+                self.send_server_fail_response(
+                    f'Unable to get the download url of douyin video, because: {ex}'
+                )
+                return
 
         if download_video_directly:
             video_size = 0
@@ -206,20 +215,41 @@ class Resquest(BaseHTTPRequestHandler):
             if None != video_bytes and video_size > 0:
                 # Base encode video bytes.
                 video_base64 = str(base64.b64encode(video_bytes), 'utf-8')
-                response = _make_success_result(video_base64)
+                self.send_success_response(video_base64)
         else:
-            if http_status == 200:
-                response = _make_success_result(urls)
+            self.send_success_response(urls)
 
-        self.send_response(http_status)
+    def send_fail_response(self, code, message):
+        response = _make_fail_result(message)
+        self.send_response(code)
         self.send_header('Content-type', 'application/json; charset=utf-8')
         self.end_headers()
         self.wfile.write(bytes(response, encoding="utf-8"))
+        pass
 
-        log_debug('==========================================================')
+    def send_success_response(self, message):
+        response = _make_success_result(message)
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(bytes(response, encoding="utf-8"))
+        pass
+
+    def send_client_fail_response(self, message):
+        self.send_fail_response(400, message)
+        pass
+
+    def send_server_fail_response(self, message):
+        self.send_fail_response(500, message)
+        pass
 
 
 if __name__ == "__main__":
+    port = 8080
+    argv = sys.argv
+    if len(argv) > 1:
+        port = int(argv[1])
+    host = ('0.0.0.0', port)
     server = HTTPServer(host, Resquest)
-    log_debug("Starting server, listen at: %s:%s" % host)
+    log_debug("Server started, listen at: %s:%s" % host)
     server.serve_forever()
