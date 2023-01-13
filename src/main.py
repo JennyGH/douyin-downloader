@@ -70,11 +70,11 @@ def _get_video_real_urls_by_id_v1(video_id):
     response = json.loads(text)
     if 'item_list' not in response:
         log_error('No `item_list` in response')
-        return _make_fail_result('Bad response.')
+        raise Exception('Bad response.')
     item_list = response['item_list']
     if len(item_list) == 0:
         log_error('No element in response.item_list')
-        return _make_fail_result('Bad response.')
+        raise Exception('Bad response.')
     urls = []
     for item in item_list:
         if 'video' not in item:
@@ -104,7 +104,7 @@ def _get_video_real_urls_by_id_v1(video_id):
 
 def _get_video_real_urls_by_id_v2(video_id):
     log_debug(f'video_id: {video_id}')
-    api_url = f'https://www.iesdouyin.com/aweme/v1/web/aweme/detail/?aweme_id={video_id}'
+    api_url = f'https://www.iesdouyin.com/aweme/v1/web/aweme/detail/?aweme_id={video_id}&aid=1128&version_name=23.5.0&device_platform=android&os_version=2333'
     log_debug(f'api_url: {api_url}')
     response = requests.get(url=api_url, headers=headers)
     text = response.content.decode('utf-8')
@@ -112,17 +112,17 @@ def _get_video_real_urls_by_id_v2(video_id):
     response = json.loads(text)
     if 'aweme_detail' not in response:
         log_error('No `aweme_detail` in response')
-        return _make_fail_result('Bad response.')
+        raise Exception('Bad response.')
     aweme_detail = response['aweme_detail']
-    if len(aweme_detail) == 0:
+    if None == aweme_detail or len(aweme_detail) == 0:
         log_error('No element in response.aweme_detail')
-        return _make_fail_result('Bad response.')
+        raise Exception('Bad response.')
 
     urls = []
 
     if 'video' not in aweme_detail:
         log_error(f'No `video` in {json.dumps(aweme_detail)}')
-        return _make_success_result(urls)
+        return (urls)
     video = aweme_detail['video']
 
     if 'download_addr' in video:
@@ -131,11 +131,11 @@ def _get_video_real_urls_by_id_v2(video_id):
         addr = video['play_addr']
     else:
         log_error(f'No `download_addr` or `play_addr` in {json.dumps(video)}')
-        return _make_success_result(urls)
+        return (urls)
 
     if 'url_list' not in addr:
         log_error(f'No `url_list` in {json.dumps(addr)}')
-        return _make_success_result(urls)
+        return (urls)
 
     url_list = addr['url_list']
     for url in url_list:
