@@ -1,2 +1,4 @@
 requests
 requests[socks]
+ffmpy3
+ffmpeg-python

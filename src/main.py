@@ -3,6 +3,8 @@ import base64
 import os
 import sys
 import json
+import ffmpy3
+import ffmpeg
 import requests
 from urllib.parse import parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -75,7 +77,6 @@ def _get_video_real_urls_by_id_v1(video_id):
     if len(item_list) == 0:
         log_error('No element in response.item_list')
         raise Exception('Bad response.')
-    urls = []
     for item in item_list:
         if 'video' not in item:
             log_error(f'No `video` in {json.dumps(item)}')
@@ -96,10 +97,7 @@ def _get_video_real_urls_by_id_v1(video_id):
             continue
 
         url_list = addr['url_list']
-        for url in url_list:
-            urls.append(url)
-
-    return urls
+    return ['', url_list]
 
 
 def _get_video_real_urls_by_id_v2(video_id):
@@ -118,12 +116,18 @@ def _get_video_real_urls_by_id_v2(video_id):
         log_error('No element in response.aweme_detail')
         raise Exception('Bad response.')
 
-    urls = []
-
     if 'video' not in aweme_detail:
         log_error(f'No `video` in {json.dumps(aweme_detail)}')
-        return (urls)
+        return None
     video = aweme_detail['video']
+
+    cover_url = ''
+    if 'cover' in video:
+        cover = video['cover']
+        if 'url_list' in cover:
+            url_list = cover['url_list']
+            if None != url_list and len(url_list) > 0:
+                cover_url = url_list[0]
 
     if 'download_addr' in video:
         addr = video['download_addr']
@@ -131,24 +135,116 @@ def _get_video_real_urls_by_id_v2(video_id):
         addr = video['play_addr']
     else:
         log_error(f'No `download_addr` or `play_addr` in {json.dumps(video)}')
-        return (urls)
+        return None
 
     if 'url_list' not in addr:
         log_error(f'No `url_list` in {json.dumps(addr)}')
-        return (urls)
+        return None
 
     url_list = addr['url_list']
-    for url in url_list:
-        urls.append(url)
 
-    return urls
+    return [cover_url, url_list]
 
 
-def fix_base64_encode_padding(data):
+def _fix_base64_encode_padding(data):
     missing_padding = 4 - len(data) % 4
     if missing_padding:
         data += b'=' * missing_padding
     return data
+
+
+def _is_audio(url):
+    return url.endswith('.mp3')
+
+
+def _suffix_from_content_type(type):
+    splited = type.split('/')
+    return splited[0] if len(splited) < 2 else splited[1]
+
+
+def _bytes_from_file(path):
+    try:
+        with open(path, 'rb') as file:
+            return file.read()
+    except:
+        return b''
+
+
+def _base64_encode_file(path):
+    try:
+        return str(base64.b64encode(_bytes_from_file(path)), 'utf-8')
+    except:
+        return ''
+    return ''
+
+
+def _ensure_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def _ensure_cache_dir(root):
+    cache_path = os.path.join(root, 'cache')
+    _ensure_dir(cache_path)
+    return cache_path
+
+
+def _try_remove_file(path):
+    try:
+        os.remove(path)
+        return True
+    except:
+        return False
+
+
+def _make_video(video_id, cover_url, audio_url):
+    cover_response = requests.get(url=cover_url, headers=headers)
+    audio_response = requests.get(url=audio_url, headers=headers)
+    cover_bytes = cover_response.content
+    audio_bytes = audio_response.content
+    is_valid_cover = None != cover_bytes and len(cover_bytes) > 0
+    is_valid_audio = None != audio_bytes and len(audio_bytes) > 0
+    if not is_valid_cover:
+        raise Exception('Bad cover.')
+    if not is_valid_audio:
+        raise Exception('Bad audio.')
+    tmp_root_path = _ensure_cache_dir('.')
+    cover_content_type = cover_response.headers['content-type']
+    cover_suffix = _suffix_from_content_type(cover_content_type)
+    cover_save_path = os.path.join(tmp_root_path, f'{video_id}.{cover_suffix}')
+    audio_save_path = os.path.join(tmp_root_path, f'{video_id}.mp3')
+    video_save_path = os.path.join(tmp_root_path, f'{video_id}.mp4')
+    if not os.path.exists(cover_save_path):
+        with open(cover_save_path, 'wb') as file:
+            output_size = file.write(cover_bytes)
+            log_debug(
+                f'Saved cover to `{cover_save_path}`, size: {_to_friendly_size_string(output_size)}'
+            )
+    if not os.path.exists(audio_save_path):
+        with open(audio_save_path, 'wb') as file:
+            output_size = file.write(audio_bytes)
+            log_debug(
+                f'Saved audio to `{audio_save_path}`, size: {_to_friendly_size_string(output_size)}'
+            )
+    # ffmpeg -y -loop 1 -i cover.webp -i 7171008521526610719.mp3 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac video.mp4
+    ff = ffmpy3.FFmpeg(global_options=["-y"],
+                       inputs={
+                           cover_save_path: f"-loop 1 ",
+                           audio_save_path: None
+                       },
+                       outputs={
+                           video_save_path:
+                           "-shortest -c:v libx264 -pix_fmt yuv420p -c:a aac"
+                       })
+    log_debug(f'FFMPEG command: {ff.cmd}')
+    try:
+        ff.run()
+        return _bytes_from_file(video_save_path)
+    except Exception as ex:
+        _try_remove_file(cover_save_path)
+        _try_remove_file(audio_save_path)
+        _try_remove_file(video_save_path)
+        raise ex
 
 
 class Resquest(BaseHTTPRequestHandler):
@@ -173,7 +269,7 @@ class Resquest(BaseHTTPRequestHandler):
             return
 
         # Decode share url from base64.
-        share_url_base64 = fix_base64_encode_padding(
+        share_url_base64 = _fix_base64_encode_padding(
             query['url'][0].encode("utf-8"))
         share_url = str(base64.b64decode(share_url_base64), 'utf-8')
         log_debug(f'share_url: {share_url}')
@@ -188,12 +284,13 @@ class Resquest(BaseHTTPRequestHandler):
             return
 
         # Try to get video download urls from video id.
+        cover_url = ''
         urls = []
         try:
-            urls = _get_video_real_urls_by_id_v1(video_id)
+            [cover_url, urls] = _get_video_real_urls_by_id_v1(video_id)
         except:
             try:
-                urls = _get_video_real_urls_by_id_v2(video_id)
+                [cover_url, urls] = _get_video_real_urls_by_id_v2(video_id)
             except Exception as ex:
                 self.send_server_fail_response(
                     f'Unable to get the download url of douyin video, because: {ex}'
@@ -205,7 +302,10 @@ class Resquest(BaseHTTPRequestHandler):
             video_bytes = b''
             if len(urls) > 0:
                 for url in urls:
-                    video_bytes = _download_video_from(url)
+                    if _is_audio(url) and cover_url != '':
+                        video_bytes = _make_video(video_id, cover_url, url)
+                    else:
+                        video_bytes = _download_video_from(url)
                     if None == video_bytes:
                         continue
                     video_size = len(video_bytes)

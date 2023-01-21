@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "src/main.py",
             "args": [
-                "1561"
+                "8080"
             ],
             "console": "integratedTerminal"
         }
