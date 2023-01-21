@@ -122,8 +122,8 @@ def _get_video_real_urls_by_id_v2(video_id):
     video = aweme_detail['video']
 
     cover_url = ''
-    if 'cover' in video:
-        cover = video['cover']
+    if 'origin_cover' in video:
+        cover = video['origin_cover']
         if 'url_list' in cover:
             url_list = cover['url_list']
             if None != url_list and len(url_list) > 0:
