@@ -189,6 +189,36 @@ def _ensure_cache_dir(root):
     return cache_path
 
 
+def _default_config():
+    return {
+        'output_params':
+        '-preset ultrafast -tune zerolatency -c:v libx264 -pix_fmt yuv420p -c:a copy'
+    }
+
+
+def _ensure_config(root):
+    cache_dir = _ensure_cache_dir(root)
+    config_dir = os.path.join(cache_dir, 'config.json')
+    if not os.path.exists(config_dir):
+        with open(config_dir, mode='w', encoding='utf-8') as file:
+            file.write(json.dumps(_default_config()))
+    return config_dir
+
+
+def _config_from(path):
+    try:
+        with open(path, mode='r', encoding='utf-8') as file:
+            return json.loads(file.read())
+    except:
+        return _default_config()
+
+
+def _ffmpeg_output_params_from(config):
+    if None == config:
+        config = _default_config()
+    return config['output_params']
+
+
 def _try_remove_file(path):
     try:
         os.remove(path)
@@ -214,6 +244,9 @@ def _make_video(video_id, cover_url, audio_url):
     cover_save_path = os.path.join(tmp_root_path, f'{video_id}.{cover_suffix}')
     audio_save_path = os.path.join(tmp_root_path, f'{video_id}.mp3')
     video_save_path = os.path.join(tmp_root_path, f'{video_id}.mp4')
+    config_path = _ensure_config('.')
+    config = _config_from(config_path)
+    ffmpeg_output_params = _ffmpeg_output_params_from(config)
     if not os.path.exists(cover_save_path):
         with open(cover_save_path, 'wb') as file:
             output_size = file.write(cover_bytes)
@@ -232,10 +265,7 @@ def _make_video(video_id, cover_url, audio_url):
                            cover_save_path: f"-loop 1 ",
                            audio_save_path: None
                        },
-                       outputs={
-                           video_save_path:
-                           "-preset ultrafast -tune zerolatency -c:v libx264 -pix_fmt yuv420p -c:a copy"
-                       })
+                       outputs={video_save_path: ffmpeg_output_params})
     log_debug(f'FFMPEG command: {ff.cmd}')
     try:
         ff.run()
