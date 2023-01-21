@@ -234,7 +234,7 @@ def _make_video(video_id, cover_url, audio_url):
                        },
                        outputs={
                            video_save_path:
-                           "-shortest -c:v libx264 -pix_fmt yuv420p -c:a aac"
+                           "-preset ultrafast -tune zerolatency -c:v libx264 -pix_fmt yuv420p -c:a copy"
                        })
     log_debug(f'FFMPEG command: {ff.cmd}')
     try:
