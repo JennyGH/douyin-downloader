@@ -83,6 +83,15 @@ def _get_video_real_urls_by_id_v1(video_id):
             continue
 
         video = item['video']
+
+        cover_url = ''
+        if 'origin_cover' in video:
+            cover = video['origin_cover']
+            if 'url_list' in cover:
+                url_list = cover['url_list']
+                if None != url_list and len(url_list) > 0:
+                    cover_url = url_list[0]
+
         if 'download_addr' in video:
             addr = video['download_addr']
         elif 'play_addr' in video:
@@ -97,7 +106,8 @@ def _get_video_real_urls_by_id_v1(video_id):
             continue
 
         url_list = addr['url_list']
-    return ['', url_list]
+        return [cover_url, url_list]
+    return ['', []]
 
 
 def _get_video_real_urls_by_id_v2(video_id):
@@ -154,7 +164,7 @@ def _fix_base64_encode_padding(data):
 
 
 def _is_audio(url):
-    return url.endswith('.mp3')
+    return url.endswith('.mp3') or '.mp3' in url
 
 
 def _suffix_from_content_type(type):
@@ -316,38 +326,34 @@ class Resquest(BaseHTTPRequestHandler):
         # Try to get video download urls from video id.
         cover_url = ''
         urls = []
-        try:
-            [cover_url, urls] = _get_video_real_urls_by_id_v1(video_id)
-        except:
+        downloaders = [
+            _get_video_real_urls_by_id_v1, _get_video_real_urls_by_id_v2
+        ]
+        last_exception = None
+        video_base64 = ''
+        for downloader in downloaders:
             try:
-                [cover_url, urls] = _get_video_real_urls_by_id_v2(video_id)
-            except Exception as ex:
-                self.send_server_fail_response(
-                    f'Unable to get the download url of douyin video, because: {ex}'
-                )
-                return
-
-        if download_video_directly:
-            video_size = 0
-            video_bytes = b''
-            if len(urls) > 0:
-                for url in urls:
-                    if _is_audio(url) and cover_url != '':
-                        video_bytes = _make_video(video_id, cover_url, url)
-                    else:
-                        video_bytes = _download_video_from(url)
-                    if None == video_bytes:
+                [cover_url, urls] = downloader(video_id)
+                if download_video_directly:
+                    video_base64 = self.try_download(video_id, cover_url, urls)
+                    if not video_base64:
                         continue
-                    video_size = len(video_bytes)
-                    if video_size > 0:
+                    else:
+                        self.send_success_response(video_base64)
                         break
+                else:
+                    self.send_success_response(urls)
+                    break
+            except Exception as ex:
+                last_exception = ex
+                continue
 
-            if None != video_bytes and video_size > 0:
-                # Base encode video bytes.
-                video_base64 = str(base64.b64encode(video_bytes), 'utf-8')
-                self.send_success_response(video_base64)
-        else:
-            self.send_success_response(urls)
+        # There is no valid downloader.
+        if not video_base64:
+            self.send_server_fail_response(
+                f'Unable to get the download url of douyin video, because: {last_exception}'
+            )
+            return
 
     def send_fail_response(self, code, message):
         response = _make_fail_result(message)
@@ -372,6 +378,29 @@ class Resquest(BaseHTTPRequestHandler):
     def send_server_fail_response(self, message):
         self.send_fail_response(500, message)
         pass
+
+    def try_download(self, video_id, cover_url, media_urls):
+        if not video_id or not cover_url or len(media_urls) <= 0:
+            return ''
+        video_size = 0
+        video_bytes = b''
+        for url in media_urls:
+            try:
+                if _is_audio(url) and cover_url != '':
+                    video_bytes = _make_video(video_id, cover_url, url)
+                else:
+                    video_bytes = _download_video_from(url)
+            except:
+                continue
+            if not video_bytes:
+                continue
+            video_size = len(video_bytes)
+            if video_size > 0:
+                break
+        if video_size <= 0:
+            return ''
+        # Base encode video bytes.
+        return str(base64.b64encode(video_bytes), 'utf-8')
 
 
 if __name__ == "__main__":
