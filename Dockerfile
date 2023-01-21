@@ -8,8 +8,8 @@ WORKDIR /
 
 ### 安装 ffmpeg
 COPY ./sources.list /etc/apt/sources.list
-RUN DEBIAN_FRONTEND=noninteractive apt update -y
-RUN DEBIAN_FRONTEND=noninteractive apt install ffmpeg -y
+RUN DEBIAN_FRONTEND=noninteractive apt update -y && \
+    DEBIAN_FRONTEND=noninteractive apt install ffmpeg -y
 
 ### 下载 python 项目的依赖库
 # RUN python -m pip install --upgrade pip
