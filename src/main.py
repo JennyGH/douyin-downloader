@@ -175,6 +175,8 @@ def _get_video_real_urls_by_id_v3(video_id):
     media_url = ''
     if 'cover' in response:
         cover_url = response['cover']
+    elif 'images' in response:
+        cover_url = response['images'][0]
     if 'video' in response:
         media_url = response['video']
     elif 'audio' in response:
