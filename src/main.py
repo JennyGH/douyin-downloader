@@ -1,4 +1,5 @@
 # coding:utf-8
+import cv2
 import base64
 import os
 import sys
@@ -291,13 +292,19 @@ def _make_video(video_id, cover_url, audio_url):
             log_debug(
                 f'Saved cover to `{cover_save_path}`, size: {_to_friendly_size_string(output_size)}'
             )
+        cover = cv2.imread(cover_save_path)
+        height, width = cover.shape[:2]
+        max_edge = (height if height > width else width)
+        scale = 640 / max_edge
+        if scale < 1:
+            cover = cv2.resize(cover, dsize=None, fx=scale, fy=scale)
+            cv2.imwrite(cover_save_path, cover)
     if not os.path.exists(audio_save_path):
         with open(audio_save_path, 'wb') as file:
             output_size = file.write(audio_bytes)
             log_debug(
                 f'Saved audio to `{audio_save_path}`, size: {_to_friendly_size_string(output_size)}'
             )
-    # ffmpeg -y -loop 1 -i cover.webp -i 7171008521526610719.mp3 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac video.mp4
     ff = ffmpy3.FFmpeg(global_options=["-y"],
                        inputs={
                            cover_save_path: f"-loop 1 ",
@@ -419,7 +426,8 @@ class Resquest(BaseHTTPRequestHandler):
                     video_bytes = _make_video(video_id, cover_url, url)
                 else:
                     video_bytes = _download_video_from(url)
-            except:
+            except Exception as ex:
+                log_error(ex)
                 continue
             if not video_bytes:
                 continue
