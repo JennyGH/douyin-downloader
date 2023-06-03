@@ -1,5 +1,6 @@
 #!/bin/bash
 docker run \
+--rm \
 --restart unless-stopped \
 --name=douyin-downloader \
 --dns 202.96.128.86 \
