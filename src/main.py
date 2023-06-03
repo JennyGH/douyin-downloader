@@ -252,6 +252,12 @@ def _config_from(path):
         return _default_config()
 
 
+
+def _ffmpeg_input_params_from(config):
+    if None == config:
+        config = _default_config()
+    return config['input_params']
+
 def _ffmpeg_output_params_from(config):
     if None == config:
         config = _default_config()
@@ -285,6 +291,7 @@ def _make_video(video_id, cover_url, audio_url):
     video_save_path = os.path.join(tmp_root_path, f'{video_id}.mp4')
     config_path = _ensure_config('.')
     config = _config_from(config_path)
+    ffmpeg_input_params = _ffmpeg_input_params_from(config)
     ffmpeg_output_params = _ffmpeg_output_params_from(config)
     if not os.path.exists(cover_save_path):
         with open(cover_save_path, 'wb') as file:
@@ -308,7 +315,7 @@ def _make_video(video_id, cover_url, audio_url):
     ff = ffmpy3.FFmpeg(global_options=["-y"],
                        inputs={
                            cover_save_path: f"-loop 1 ",
-                           audio_save_path: None
+                           audio_save_path: ffmpeg_input_params
                        },
                        outputs={video_save_path: ffmpeg_output_params})
     log_debug(f'FFMPEG command: {ff.cmd}')

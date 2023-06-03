@@ -13,7 +13,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt update -y && \
 
 ### 下载 python 项目的依赖库
 # RUN python -m pip install --upgrade pip
-RUN pip3 install -r requirements.txt
+RUN pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
 EXPOSE 8080
 ### 在创建个爬取的数据存放的目录，这个需要根据自己代码里面设置的目录来创建，例如：
 ### VOLUME /data
