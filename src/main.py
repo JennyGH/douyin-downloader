@@ -16,6 +16,9 @@ headers = {
 
 units = ['B', 'KB', 'MB', 'GB']
 
+share_url_to_video_id_map = {}
+video_id_to_share_url_map = {}
+
 
 def log_debug(content):
     print(f'[DEBUG] {content}')
@@ -38,9 +41,13 @@ def _make_fail_result(errmsg):
 
 
 def _get_video_id(share_url):
-    response = requests.get(url=share_url, headers=headers)
-    video_id = os.path.basename(os.path.dirname(response.url))
-    return video_id
+    if (share_url not in share_url_to_video_id_map) or (
+            not share_url_to_video_id_map[share_url]):
+        response = requests.get(url=share_url, headers=headers)
+        video_id = os.path.basename(os.path.dirname(response.url))
+        share_url_to_video_id_map[share_url] = video_id
+        video_id_to_share_url_map[video_id] = share_url
+    return share_url_to_video_id_map[share_url]
 
 
 def _to_friendly_size_string(size, unit_index=0):
@@ -154,6 +161,25 @@ def _get_video_real_urls_by_id_v2(video_id):
     url_list = addr['url_list']
 
     return [cover_url, url_list]
+
+
+def _get_video_real_urls_by_id_v3(video_id):
+    # https://api.cooluc.com/?url=https://v.douyin.com/U8Q2CEN/
+    share_url = video_id_to_share_url_map[video_id]
+    api_url = f'https://api.cooluc.com/?url={share_url}'
+    response = requests.get(url=api_url, headers=headers)
+    text = response.content.decode('utf-8')
+    log_debug(f'response: {text}')
+    response = json.loads(text)
+    cover_url = ''
+    media_url = ''
+    if 'cover' in response:
+        cover_url = response['cover']
+    if 'video' in response:
+        media_url = response['video']
+    elif 'audio' in response:
+        media_url = response['audio']
+    return [cover_url, [media_url]]
 
 
 def _fix_base64_encode_padding(data):
@@ -327,7 +353,8 @@ class Resquest(BaseHTTPRequestHandler):
         cover_url = ''
         urls = []
         downloaders = [
-            _get_video_real_urls_by_id_v1, _get_video_real_urls_by_id_v2
+            _get_video_real_urls_by_id_v1, _get_video_real_urls_by_id_v2,
+            _get_video_real_urls_by_id_v3
         ]
         last_exception = None
         video_base64 = ''
@@ -349,7 +376,7 @@ class Resquest(BaseHTTPRequestHandler):
                 continue
 
         # There is no valid downloader.
-        if not video_base64:
+        if download_video_directly and not video_base64:
             self.send_server_fail_response(
                 f'Unable to get the download url of douyin video, because: {last_exception}'
             )
